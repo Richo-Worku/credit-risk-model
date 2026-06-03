@@ -1,19 +1,14 @@
-# src/data_processing.py
-
 import pandas as pd
-import numpy as np
 from pathlib import Path
 
 from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
 
 
 # =========================
 # 1. LOAD DATA
 # =========================
 def load_data(filepath):
-    """
-    Load raw transaction data.
-    """
     return pd.read_csv(filepath)
 
 
@@ -21,12 +16,8 @@ def load_data(filepath):
 # 2. TIME FEATURES
 # =========================
 def extract_time_features(df):
-    """
-    Extract time-based features from TransactionStartTime.
-    """
 
     df = df.copy()
-
     df["TransactionStartTime"] = pd.to_datetime(df["TransactionStartTime"])
 
     df["TransactionHour"] = df["TransactionStartTime"].dt.hour
@@ -38,80 +29,171 @@ def extract_time_features(df):
 
 
 # =========================
-# 3. AGGREGATE FEATURES
+# 3. TASK 3: AGGREGATE FEATURES
 # =========================
 def create_aggregate_features(df):
-    """
-    Create customer-level aggregate features.
-    """
 
     customer_features = (
         df.groupby("CustomerId")
-          .agg(
-              TotalTransactionAmount=("Amount", "sum"),
-              AverageTransactionAmount=("Amount", "mean"),
-              TransactionCount=("TransactionId", "count"),
-              StdTransactionAmount=("Amount", lambda x: x.std(ddof=0))
-          )
-          .reset_index()
+        .agg(
+            TotalTransactionAmount=("Amount", "sum"),
+            AverageTransactionAmount=("Amount", "mean"),
+            TransactionCount=("TransactionId", "count"),
+            StdTransactionAmount=("Amount", lambda x: x.std(ddof=0))
+        )
+        .reset_index()
     )
 
-    # -------------------------
-    # HANDLE MISSING VALUES
-    # -------------------------
-    customer_features["StdTransactionAmount"] = customer_features["StdTransactionAmount"].fillna(0)
+    customer_features["StdTransactionAmount"] = (
+        customer_features["StdTransactionAmount"].fillna(0)
+    )
 
     return customer_features
 
 
 # =========================
-# 4. MAIN PIPELINE
+# 4. TASK 4: RFM FEATURES
+# =========================
+def create_rfm_features(df):
+
+    df = df.copy()
+    df["TransactionStartTime"] = pd.to_datetime(df["TransactionStartTime"])
+
+    snapshot_date = df["TransactionStartTime"].max()
+
+    rfm = (
+        df.groupby("CustomerId")
+        .agg(
+            Recency=("TransactionStartTime", lambda x: (snapshot_date - x.max()).days),
+            Frequency=("TransactionId", "count"),
+            Monetary=("Amount", "sum")
+        )
+        .reset_index()
+    )
+
+    return rfm
+
+
+# =========================
+# 5. KMEANS CLUSTERING
+# =========================
+def create_rfm_clusters(rfm_df):
+
+    rfm = rfm_df.copy()
+
+    features = ["Recency", "Frequency", "Monetary"]
+
+    scaler = StandardScaler()
+    rfm_scaled = scaler.fit_transform(rfm[features])
+
+    kmeans = KMeans(
+        n_clusters=3,
+        random_state=42,
+        n_init=10
+    )
+
+    rfm["Cluster"] = kmeans.fit_predict(rfm_scaled)
+
+    return rfm
+
+
+# =========================
+# 6. PROXY TARGET LABEL
+# =========================
+def assign_risk_label(rfm_clustered):
+
+    df = rfm_clustered.copy()
+
+    # Based on cluster analysis (least engaged customers)
+    high_risk_cluster = 0
+
+    df["is_high_risk"] = (
+        df["Cluster"] == high_risk_cluster
+    ).astype(int)
+
+    return df
+
+
+# =========================
+# 7. MAIN PIPELINE
 # =========================
 def main():
 
-    # Path handling
+    # Paths
     base_path = Path(__file__).resolve().parent.parent
+
     data_path = base_path / "data" / "raw" / "data.csv"
-    output_path = base_path / "data" / "processed" / "processed_data.csv"
+
+    task3_output = base_path / "data" / "processed" / "customer_features.csv"
+    task4_output = base_path / "data" / "processed" / "rfm_clustered.csv"
+    final_output = base_path / "data" / "processed" / "training_data.csv"
 
     # Load data
     df = load_data(data_path)
 
     print("Raw data shape:", df.shape)
 
-    # Feature engineering
+    # Time features
     df = extract_time_features(df)
 
-    # Aggregate to customer level
+    # =========================
+    # TASK 3
+    # =========================
     customer_features = create_aggregate_features(df)
 
-    print("Customer-level data shape:", customer_features.shape)
-
-    # =========================
-    # SCALING (STANDARDIZATION)
-    # =========================
-    numeric_features = [
-        "TotalTransactionAmount",
-        "AverageTransactionAmount",
-        "TransactionCount",
-        "StdTransactionAmount"
-    ]
-
-    scaler = StandardScaler()
-
-    customer_features[numeric_features] = scaler.fit_transform(
-        customer_features[numeric_features]
-    )
-
-    print("\nScaled features preview:")
+    print("\nTask 3 Features Preview:")
     print(customer_features.head())
 
-    # Save processed dataset
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    customer_features.to_csv(output_path, index=False)
+    task3_output.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"\nProcessed data saved to: {output_path}")
-    print("Pipeline executed successfully ✔")
+    customer_features.to_csv(task3_output, index=False)
+    print(f"\nSaved Task 3 → {task3_output}")
+
+    # =========================
+    # TASK 4
+    # =========================
+    rfm_features = create_rfm_features(df)
+
+    print("\nRFM Features Preview:")
+    print(rfm_features.head())
+
+    rfm_clustered = create_rfm_clusters(rfm_features)
+
+    print("\nCluster Distribution:")
+    print(rfm_clustered["Cluster"].value_counts())
+
+    print("\nCluster Profiles:")
+    print(
+        rfm_clustered.groupby("Cluster")[["Recency", "Frequency", "Monetary"]].mean()
+    )
+
+    # Assign risk label
+    rfm_clustered = assign_risk_label(rfm_clustered)
+
+    print("\nRisk Label Distribution:")
+    print(rfm_clustered["is_high_risk"].value_counts())
+
+    # =========================
+    # FINAL MERGE (MODEL DATASET)
+    # =========================
+    final_dataset = customer_features.merge(
+        rfm_clustered,
+        on="CustomerId",
+        how="inner"
+    )
+
+    print("\nFinal Dataset Shape:", final_dataset.shape)
+    print("\nFinal Dataset Preview:")
+    print(final_dataset.head())
+
+    # Save outputs
+    rfm_clustered.to_csv(task4_output, index=False)
+    final_dataset.to_csv(final_output, index=False)
+
+    print(f"\nSaved Task 4 → {task4_output}")
+    print(f"Saved FINAL Training Data → {final_output}")
+
+    print("\nPipeline executed successfully ✔")
 
 
 # =========================
