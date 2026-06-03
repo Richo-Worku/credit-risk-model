@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 from pathlib import Path
 
 from sklearn.preprocessing import StandardScaler
@@ -45,7 +44,9 @@ def create_aggregate_features(df):
         .reset_index()
     )
 
-    customer_features["StdTransactionAmount"] = customer_features["StdTransactionAmount"].fillna(0)
+    customer_features["StdTransactionAmount"] = (
+        customer_features["StdTransactionAmount"].fillna(0)
+    )
 
     return customer_features
 
@@ -97,7 +98,24 @@ def create_rfm_clusters(rfm_df):
 
 
 # =========================
-# 6. MAIN PIPELINE
+# 6. PROXY TARGET LABEL
+# =========================
+def assign_risk_label(rfm_clustered):
+
+    df = rfm_clustered.copy()
+
+    # Based on cluster analysis (least engaged customers)
+    high_risk_cluster = 0
+
+    df["is_high_risk"] = (
+        df["Cluster"] == high_risk_cluster
+    ).astype(int)
+
+    return df
+
+
+# =========================
+# 7. MAIN PIPELINE
 # =========================
 def main():
 
@@ -106,9 +124,9 @@ def main():
 
     data_path = base_path / "data" / "raw" / "data.csv"
 
-    # IMPORTANT: separate outputs
     task3_output = base_path / "data" / "processed" / "customer_features.csv"
     task4_output = base_path / "data" / "processed" / "rfm_clustered.csv"
+    final_output = base_path / "data" / "processed" / "training_data.csv"
 
     # Load data
     df = load_data(data_path)
@@ -123,8 +141,10 @@ def main():
     # =========================
     customer_features = create_aggregate_features(df)
 
-    print("\nTask 3 - Customer Features:")
+    print("\nTask 3 Features Preview:")
     print(customer_features.head())
+
+    task3_output.parent.mkdir(parents=True, exist_ok=True)
 
     customer_features.to_csv(task3_output, index=False)
     print(f"\nSaved Task 3 → {task3_output}")
@@ -134,7 +154,7 @@ def main():
     # =========================
     rfm_features = create_rfm_features(df)
 
-    print("\nRFM Features:")
+    print("\nRFM Features Preview:")
     print(rfm_features.head())
 
     rfm_clustered = create_rfm_clusters(rfm_features)
@@ -147,8 +167,31 @@ def main():
         rfm_clustered.groupby("Cluster")[["Recency", "Frequency", "Monetary"]].mean()
     )
 
+    # Assign risk label
+    rfm_clustered = assign_risk_label(rfm_clustered)
+
+    print("\nRisk Label Distribution:")
+    print(rfm_clustered["is_high_risk"].value_counts())
+
+    # =========================
+    # FINAL MERGE (MODEL DATASET)
+    # =========================
+    final_dataset = customer_features.merge(
+        rfm_clustered,
+        on="CustomerId",
+        how="inner"
+    )
+
+    print("\nFinal Dataset Shape:", final_dataset.shape)
+    print("\nFinal Dataset Preview:")
+    print(final_dataset.head())
+
+    # Save outputs
     rfm_clustered.to_csv(task4_output, index=False)
+    final_dataset.to_csv(final_output, index=False)
+
     print(f"\nSaved Task 4 → {task4_output}")
+    print(f"Saved FINAL Training Data → {final_output}")
 
     print("\nPipeline executed successfully ✔")
 
