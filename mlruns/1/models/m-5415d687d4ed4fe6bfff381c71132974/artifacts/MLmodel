@@ -1,0 +1,23 @@
+artifact_path: file:C:/Users/cbe/Desktop/credit/credit-risk-model/mlruns/1/models/m-5415d687d4ed4fe6bfff381c71132974/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.14.3
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.8.0
+    skops_trusted_types: null
+mlflow_version: 3.13.0
+model_id: m-5415d687d4ed4fe6bfff381c71132974
+model_size_bytes: 1971
+model_uuid: m-5415d687d4ed4fe6bfff381c71132974
+prompts: null
+run_id: 814b19eb7637485ab1d2b9b9ca0e1f16
+utc_time_created: '2026-06-03 10:25:46.715293'
